@@ -1,0 +1,10 @@
+{
+    "name": "Solana Hackathon Attendance Badge",
+    "symbol": "POP",
+    "description": "Proof of presence at Solana Hackathon",
+    "image": "https://yourapp.com/badge.png",
+    "attributes": [
+        { "trait_type": "Event", "value": "Solana Hackathon Demo" },
+        { "trait_type": "Type", "value": "Attendance" }
+    ]
+}
