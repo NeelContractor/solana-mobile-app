@@ -1,205 +1,239 @@
-if (typeof structuredClone === 'undefined') {
-    global.structuredClone = (obj: any) => JSON.parse(JSON.stringify(obj));
-}
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useConnection } from "../utils/ConnectionProvider";
+import { useMobileWallet } from "../utils/useMobileWallet";
+import * as anchor from "@coral-xyz/anchor";
 
-import { getRandomValues as expoCryptoGetRandomValues } from "expo-crypto";
-import { Buffer } from "buffer";
+import IDL from "../../proof-of-presence/target/idl/proof_of_presence.json";
+import type { ProofOfPresence } from "../../proof-of-presence/target/types/proof_of_presence";
 
-global.Buffer = Buffer;
-
-import { Cluster, LAMPORTS_PER_SOL, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from '@solana/web3.js'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
-import { useConnection } from '../utils/ConnectionProvider'
-import { useCluster } from '../components/cluster/cluster-data-access'
-import * as anchor from "@coral-xyz/anchor"
-
-import IDL from '../../proof-of-presence/target/idl/proof_of_presence.json'
-import type { ProofOfPresence } from '../../proof-of-presence/target/types/proof_of_presence'
-
+// ── Program ID ────────────────────────────────────────────────────────────────
 const PROGRAM_ID = new PublicKey("5FGBLn94L7dpNzvAG5vwBc2wqLVBkpT1kkers5om5sBv");
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface CreateEventArgs {
-    organizerPubkey: PublicKey,
-    name: string,
-    lat: number, // real latitude e.g. 12.345678
-    lng: number, // real longitude e.g. 12.345678
-    radiusMeters: number,
-    startsAt: Date,
-    endsAt: Date,
+  organizerPubkey: PublicKey;
+  name: string;
+  lat: number;
+  lng: number;
+  radiusMeters: number;
+  startsAt: Date;
+  endsAt: Date;
 }
 
 interface CheckInArgs {
-    attendeePubkey: PublicKey,
-    organizerPubkey: PublicKey,
-    eventName: string,
-    userLat: number, // real latitude
-    userLng: number // real longitude
+  attendeePubkey: PublicKey;
+  organizerPubkey: PublicKey;
+  eventName: string;
+  userLat: number;
+  userLng: number;
 }
 
-// Helper: convert real coords to scaled integer
-const toScaled = (coord: number) => new anchor.BN(Math.round(coord * 1_000_000))
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const toScaled = (coord: number) => new anchor.BN(Math.round(coord * 1_000_000));
 
-// Helper: derive event PDA
-const getEventPDA = (organizerPubkey: PublicKey, eventName: string) => PublicKey.findProgramAddressSync(
-    [Buffer.from('event'), organizerPubkey.toBuffer(), Buffer.from(eventName)],
+const getEventPDA = (organizerPubkey: PublicKey, eventName: string) =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from("event"), organizerPubkey.toBuffer(), Buffer.from(eventName)],
     PROGRAM_ID
-);
+  );
 
-// Helper: derive event PDA
-const getAttendancePDA = (eventPDA: PublicKey, attendeePubkey: PublicKey) => PublicKey.findProgramAddressSync(
-    [Buffer.from('attendance'), eventPDA.toBuffer(), attendeePubkey.toBuffer()],
+const getAttendancePDA = (eventPDA: PublicKey, attendeePubkey: PublicKey) =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from("attendance"), eventPDA.toBuffer(), attendeePubkey.toBuffer()],
     PROGRAM_ID
-)
+  );
 
+// ── Main Hook ─────────────────────────────────────────────────────────────────
 export function usePOPProgram() {
-    const { connection } = useConnection()
-    const provider = useMemo(
-        () => new anchor.AnchorProvider(
-            connection,
-            // Dummy wallet — signing is handled by Mobile Wallet Adapter
-            {
-                publicKey: PublicKey.default,
-                signTransaction: async (tx) => tx,
-                signAllTransactions: async (txs) => txs,
-            },
-            { commitment: "confirmed" }
-        ),
-        [connection]
-    )
-    const program = useMemo(() => new anchor.Program<ProofOfPresence>(IDL as ProofOfPresence, provider), [provider])
+  const { connection } = useConnection();
+  const wallet = useMobileWallet(); // ✅ same as useTransferSol
+  const client = useQueryClient();  // ✅ same as useTransferSol
 
-    const allEvents = useQuery({
-        queryKey: ['pop', 'events', "all"],
-        queryFn: () => program.account.event.all(),
-    })
+  // Read-only provider — signing done by MWA via useMobileWallet
+  const provider = useMemo(
+    () =>
+      new anchor.AnchorProvider(
+        connection,
+        {
+          publicKey: PublicKey.default,
+          signTransaction: async (tx) => tx,
+          signAllTransactions: async (txs) => txs,
+        },
+        { commitment: "confirmed" }
+      ),
+    [connection]
+  );
 
-    const allAttendance = useQuery({
-        queryKey: ['pop', 'attendance', 'all'],
-        queryFn: () => program.account.attendance.all(),
-    })
+  const program = useMemo(
+    () => new anchor.Program<ProofOfPresence>(IDL as ProofOfPresence, provider),
+    [provider]
+  );
 
-    const getProgramAccount = useQuery({
-        queryKey: ['pop', 'get-program-account'],
-        queryFn: () => connection.getParsedAccountInfo(PROGRAM_ID),
-    })
+  // ── Queries ────────────────────────────────────────────────────────────────
+  const allEvents = useQuery({
+    queryKey: ["pop", "events", "all", { endpoint: connection.rpcEndpoint }],
+    queryFn: () => program.account.event.all(),
+  });
 
-    const fetchEvent = async (organizerPubkey: PublicKey, eventName: string) => {
-        const [eventPDA] = getEventPDA(organizerPubkey, eventName)
-        return program.account.event.fetch(eventPDA)
+  const allAttendance = useQuery({
+    queryKey: ["pop", "attendance", "all", { endpoint: connection.rpcEndpoint }],
+    queryFn: () => program.account.attendance.all(),
+  });
+
+  // ── Fetch helpers ──────────────────────────────────────────────────────────
+  const fetchEvent = async (organizerPubkey: PublicKey, eventName: string) => {
+    const [eventPDA] = getEventPDA(organizerPubkey, eventName);
+    return program.account.event.fetch(eventPDA);
+  };
+
+  const fetchAttendance = async (
+    organizerPubkey: PublicKey,
+    eventName: string,
+    attendeePubkey: PublicKey
+  ) => {
+    const [eventPDA] = getEventPDA(organizerPubkey, eventName);
+    const [attendancePDA] = getAttendancePDA(eventPDA, attendeePubkey);
+    try {
+      return await program.account.attendance.fetch(attendancePDA);
+    } catch {
+      return null;
     }
+  };
 
-    const fetchAttendance = async (organizerPubkey: PublicKey, eventName: string, attendeePubkey: PublicKey) => {
-        const [eventPDA] = getEventPDA(organizerPubkey, eventName)
-        const [attendancePDA] = getAttendancePDA(eventPDA, attendeePubkey)
-        try {
-            return await program.account.attendance.fetch(attendancePDA)
-        } catch {
-            return null // not checked in yet
-        }
-    }
-    // ── Create Event (organizer) ───────────────────────────────────────────────
-    // NOTE: Returns the instruction — pass to Mobile Wallet Adapter for signing
-    const buildCreateEventIx = async ({
-        organizerPubkey,
-        name,
-        lat,
-        lng,
-        radiusMeters,
-        startsAt,
-        endsAt,
+  // ── Create Event ───────────────────────────────────────────────────────────
+  // ✅ Mirrors useTransferSol pattern exactly:
+  //    build tx → wallet.signAndSendTransaction → confirmTransaction
+  const createEvent = useMutation({
+    mutationKey: ["pop", "create-event", { endpoint: connection.rpcEndpoint }],
+    mutationFn: async ({
+      organizerPubkey,
+      name,
+      lat,
+      lng,
+      radiusMeters,
+      startsAt,
+      endsAt,
     }: CreateEventArgs) => {
-        const [eventPDA] = getEventPDA(organizerPubkey, name)
+      const [eventPDA] = getEventPDA(organizerPubkey, name);
 
-        const ix = await program.methods
+      // 1. Build instruction
+      const ix = await program.methods
         .createEvent(
-            name,
-            toScaled(lat),
-            toScaled(lng),
-            radiusMeters,
-            new anchor.BN(Math.floor(startsAt.getTime() / 1000)),
-            new anchor.BN(Math.floor(endsAt.getTime() / 1000))
+          name,
+          toScaled(lat),
+          toScaled(lng),
+          radiusMeters,
+          new anchor.BN(Math.floor(startsAt.getTime() / 1000)),
+          new anchor.BN(Math.floor(endsAt.getTime() / 1000))
         )
         .accountsStrict({
-            event: eventPDA,
-            organizer: organizerPubkey,
-            systemProgram: SystemProgram.programId,
+          event: eventPDA,
+          organizer: organizerPubkey,
+          systemProgram: SystemProgram.programId,
         })
-        .instruction()
+        .instruction();
 
-        return { ix, eventPDA }
-    }
+      // 2. Build versioned transaction (same as createTransaction() in template)
+      const {
+        context: { slot: minContextSlot },
+        value: latestBlockhash,
+      } = await connection.getLatestBlockhashAndContext();
 
-    // ── Check In (attendee) ────────────────────────────────────────────────────
-    // NOTE: Returns the instruction — pass to Mobile Wallet Adapter for signing
-    const buildCheckInIx = async ({
-        attendeePubkey,
-        organizerPubkey,
-        eventName,
-        userLat,
-        userLng,
+      const tx = new Transaction({
+        recentBlockhash: latestBlockhash.blockhash,
+        feePayer: organizerPubkey,
+      }).add(ix);
+
+      // 3. Sign and send via MWA — same as useTransferSol
+      const signature = await wallet.signAndSendTransaction(tx, minContextSlot);
+
+      // 4. Confirm
+      await connection.confirmTransaction(
+        { signature, ...latestBlockhash },
+        "confirmed"
+      );
+
+      return { signature, eventPDA };
+    },
+    onSuccess: ({ signature }) => {
+      console.log("Event created:", signature);
+      return Promise.all([
+        client.invalidateQueries({ queryKey: ["pop", "events", "all"] }),
+      ]);
+    },
+    onError: (error) => {
+      console.error("Create event error:", error);
+    },
+  });
+
+  // ── Check In ───────────────────────────────────────────────────────────────
+  const checkIn = useMutation({
+    mutationKey: ["pop", "check-in", { endpoint: connection.rpcEndpoint }],
+    mutationFn: async ({
+      attendeePubkey,
+      organizerPubkey,
+      eventName,
+      userLat,
+      userLng,
     }: CheckInArgs) => {
-        const [eventPDA] = getEventPDA(organizerPubkey, eventName)
-        const [attendancePDA] = getAttendancePDA(eventPDA, attendeePubkey)
+      const [eventPDA] = getEventPDA(organizerPubkey, eventName);
+      const [attendancePDA] = getAttendancePDA(eventPDA, attendeePubkey);
 
-        const ix = await program.methods
+      // 1. Build instruction
+      const ix = await program.methods
         .checkIn(toScaled(userLat), toScaled(userLng))
         .accountsStrict({
-            event: eventPDA,
-            attendance: attendancePDA,
-            attendee: attendeePubkey,
-            systemProgram: SystemProgram.programId,
+          event: eventPDA,
+          attendance: attendancePDA,
+          attendee: attendeePubkey,
+          systemProgram: SystemProgram.programId,
         })
-        .instruction()
+        .instruction();
 
-        return { ix, attendancePDA, eventPDA }
-    }
+      // 2. Build transaction
+      const {
+        context: { slot: minContextSlot },
+        value: latestBlockhash,
+      } = await connection.getLatestBlockhashAndContext();
 
-    // ── useMutation wrappers (for use with MWA transact()) ────────────────────
-    // These return the built instruction — your screen handles MWA signing.
-    // See CheckInScreen.tsx for usage pattern.
+      const tx = new Transaction({
+        recentBlockhash: latestBlockhash.blockhash,
+        feePayer: attendeePubkey,
+      }).add(ix);
 
-    const createEventMutation = useMutation({
-        mutationKey: ['pop', 'create-event'],
-        mutationFn: buildCreateEventIx,
-        onError: (error) => {
-            console.error('Create event error:', error)
-        },
-    })
+      // 3. Sign and send via MWA
+      const signature = await wallet.signAndSendTransaction(tx, minContextSlot);
 
-    const checkInMutation = useMutation({
-        mutationKey: ['pop', 'check-in'],
-        mutationFn: buildCheckInIx,
-        onSuccess: () => {
-            allAttendance.refetch()
-            allEvents.refetch()
-        },
-        onError: (error) => {
-            console.error('Check-in error:', error)
-        },
-    })
+      // 4. Confirm
+      await connection.confirmTransaction(
+        { signature, ...latestBlockhash },
+        "confirmed"
+      );
 
-    return {
-        // Program
-        program,
-        programId: PROGRAM_ID,
+      return { signature, attendancePDA, eventPDA };
+    },
+    onSuccess: ({ signature }) => {
+      console.log("Checked in:", signature);
+      return Promise.all([
+        client.invalidateQueries({ queryKey: ["pop", "attendance", "all"] }),
+        client.invalidateQueries({ queryKey: ["pop", "events", "all"] }),
+      ]);
+    },
+    onError: (error) => {
+      console.error("Check-in error:", error);
+    },
+  });
 
-        // Queries
-        allEvents,
-        allAttendance,
-        getProgramAccount,
-
-        // Fetch helpers
-        fetchEvent,
-        fetchAttendance,
-
-        // Instruction builders (use inside transact() in your screens)
-        buildCreateEventIx,
-        buildCheckInIx,
-
-        // Mutations (optional — wrap buildXxx + MWA in one place if preferred)
-        createEventMutation,
-        checkInMutation,
-    }
+  return {
+    program,
+    programId: PROGRAM_ID,
+    allEvents,
+    allAttendance,
+    fetchEvent,
+    fetchAttendance,
+    createEvent,   // use createEvent.mutateAsync({...}) in screens
+    checkIn,       // use checkIn.mutateAsync({...}) in screens
+  };
 }

@@ -47,7 +47,7 @@ pub mod proof_of_presence {
         let dlng = (user_lng - event.lng).abs() as u64;
         // 1 degree ~ 111_000 meters, coords scaled by 1_000_000
         // so 1 unit = 0.111 meters
-        let dist_approx = ((dlat * dlng + dlng * dlng) as f64).sqrt() * 0.111;
+        let dist_approx = ((dlat * dlat + dlng * dlng) as f64).sqrt() * 0.111;
         require!(dist_approx <= event.radius_meters as f64, ErrorCode::OutOfRange);
 
         // Record attendance

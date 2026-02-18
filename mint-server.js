@@ -32,7 +32,7 @@ app.post("/mint", async (req, res) => {
       metadata: {
         name: `${eventName} Attendance Badge`,
         symbol: "POP",
-        uri: "https://yourapp.com/badge-metadata.json",
+        uri: "https://github.com/NeelContractor/solana-mobile-app/blob/main/assets/badge-metadata.json",
         sellerFeeBasisPoints: 0,
         collection: { key: publicKey("11111111111111111111111111111111"), verified: false },
         creators: [],
