@@ -2,7 +2,7 @@
     "name": "Solana Hackathon Attendance Badge",
     "symbol": "POP",
     "description": "Proof of presence at Solana Hackathon",
-    "image": "https://yourapp.com/badge.png",
+    "image": "https://github.com/NeelContractor/solana-mobile-app/blob/main/assets/demoImage.png",
     "attributes": [
         { "trait_type": "Event", "value": "Solana Hackathon Demo" },
         { "trait_type": "Type", "value": "Attendance" }

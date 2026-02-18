@@ -1,4 +1,11 @@
-'use client'
+if (typeof structuredClone === 'undefined') {
+    global.structuredClone = (obj: any) => JSON.parse(JSON.stringify(obj));
+}
+
+import { getRandomValues as expoCryptoGetRandomValues } from "expo-crypto";
+import { Buffer } from "buffer";
+
+global.Buffer = Buffer;
 
 import { Cluster, LAMPORTS_PER_SOL, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from '@solana/web3.js'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -61,7 +68,7 @@ export function usePOPProgram() {
         ),
         [connection]
     )
-    const program = useMemo(() => new anchor.Program<ProofOfPresence>(IDL as ProofOfPresence, PROGRAM_ID, provider), [provider])
+    const program = useMemo(() => new anchor.Program<ProofOfPresence>(IDL as ProofOfPresence, provider), [provider])
 
     const allEvents = useQuery({
         queryKey: ['pop', 'events', "all"],

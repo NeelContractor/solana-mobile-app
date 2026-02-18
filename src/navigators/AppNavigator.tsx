@@ -49,15 +49,18 @@ const Stack = createNativeStackNavigator();
 
 const AppStack = () => {
   return (
-    <Stack.Navigator initialRouteName={"Home"}>
-      <Stack.Screen
-        name="HomeStack"
-        component={HomeNavigator}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen name="Settings" component={Screens.SettingsScreen} />
-      {/** 🔥 Your screens go here */}
-    </Stack.Navigator>
+    <>
+      <StatusBar style="dark" />
+      <Stack.Navigator initialRouteName={"Home"}>
+        <Stack.Screen
+          name="HomeStack"
+          component={HomeNavigator}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen name="Settings" component={Screens.SettingsScreen} />
+        {/** 🔥 Your screens go here */}
+      </Stack.Navigator>
+    </>
   );
 };
 
