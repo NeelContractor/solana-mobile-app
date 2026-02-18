@@ -16,3 +16,12 @@ yarn install
 ```
 npx expo run:android
 ```
+
+## start mint-server
+- mint server
+```bash
+node mint-server.js
+```
+
+- paste the address to EXPO_PUBLIC_MINT_SERVER_URL in .env
+- keep it running while running the application
